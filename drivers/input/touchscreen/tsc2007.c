@@ -27,8 +27,8 @@
 #include <linux/i2c.h>
 #include <linux/i2c/tsc2007.h>
 
-#define TS_POLL_DELAY			1 /* ms delay between samples */
-#define TS_POLL_PERIOD			1 /* ms delay between samples */
+#define TS_POLL_DELAY			10 /* ms delay between samples */
+#define TS_POLL_PERIOD			10 /* ms delay between samples */
 
 #define TSC2007_MEASURE_TEMP0		(0x0 << 4)
 #define TSC2007_MEASURE_AUX		(0x2 << 4)
@@ -75,12 +75,13 @@ struct tsc2007 {
 
 	u16			model;
 	u16			x_plate_ohms;
+    u16			z1_low_threshold;
 
-	bool			pendown;
+	bool		pendown;
 	int			irq;
 
 	int			(*get_pendown_state)(void);
-	void			(*clear_penirq)(void);
+	void		(*clear_penirq)(void);
 };
 
 static inline int tsc2007_xfer(struct tsc2007 *tsc, u8 cmd)
@@ -129,7 +130,7 @@ static u32 tsc2007_calculate_pressure(struct tsc2007 *tsc, struct ts_event *tc)
 	if (tc->x == MAX_12BIT)
 		tc->x = 0;
 
-	if (likely(tc->x && tc->z1)) {
+	if (likely(tc->x && (tc->z1 > tsc->z1_low_threshold))) {
 		/* compute touch pressure resistance using equation #1 */
 		rt = tc->z2 - tc->z1;
 		rt *= tc->x;
@@ -292,6 +293,7 @@ static int __devinit tsc2007_probe(struct i2c_client *client,
 
 	ts->model             = pdata->model;
 	ts->x_plate_ohms      = pdata->x_plate_ohms;
+    ts->z1_low_threshold  = pdata->z1_low_threshold;
 	ts->get_pendown_state = pdata->get_pendown_state;
 	ts->clear_penirq      = pdata->clear_penirq;
 
@@ -312,11 +314,17 @@ static int __devinit tsc2007_probe(struct i2c_client *client,
 	if (pdata->init_platform_hw)
 		pdata->init_platform_hw();
 
-	err = request_irq(ts->irq, tsc2007_irq, 0,
-			client->dev.driver->name, ts);
-	if (err < 0) {
-		dev_err(&client->dev, "irq %d busy?\n", ts->irq);
-		goto err_free_mem;
+	if (request_irq(ts->irq, tsc2007_irq, IRQF_TRIGGER_FALLING,
+			client->dev.driver->name, ts)) {
+		dev_info(&client->dev,
+			"trying pin change workaround on irq %d\n", ts->irq);
+		err = request_irq(ts->irq, tsc2007_irq,
+				  IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+				  client->dev.driver->name, ts);
+		if (err) {
+			dev_err(&client->dev, "irq %d busy?\n", ts->irq);
+			goto err_free_mem;
+		}
 	}
 
 	/* Prepare for touch readings - power down ADC and enable PENIRQ */
@@ -358,7 +366,7 @@ static int __devexit tsc2007_remove(struct i2c_client *client)
 	return 0;
 }
 
-static struct i2c_device_id tsc2007_idtable[] = {
+static const struct i2c_device_id tsc2007_idtable[] = {
 	{ "tsc2007", 0 },
 	{ }
 };
