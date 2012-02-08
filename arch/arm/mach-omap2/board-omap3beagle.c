@@ -365,6 +365,8 @@ static int beagle_twl_gpio_setup(struct device *dev,
 	 */
 
 	if (cpu_is_omap3630()) {
+		printk(KERN_ERR "cpu_is_omap3630, enabling gpio as such\n");
+
 		/* Power on DVI, Serial and PWR led */
 		gpio_request(gpio + 1, "nDVI_PWR_EN");
 		gpio_direction_output(gpio + 1, 0);
@@ -375,9 +377,10 @@ static int beagle_twl_gpio_setup(struct device *dev,
 
 		/* TWL4030_GPIO_MAX + 0 == ledA, EHCI nEN_USB_PWR (out, active low) */
 		gpio_request(gpio + TWL4030_GPIO_MAX, "nEN_USB_PWR");
-		gpio_direction_output(gpio + TWL4030_GPIO_MAX, 1);
+		gpio_direction_output(gpio + TWL4030_GPIO_MAX, 0);
 	}
 	else {
+		printk(KERN_ERR "cpu_is NOT omap3630, enabling gpio as such\n");
 		gpio_request(gpio + 1, "EHCI_nOC");
 		gpio_direction_input(gpio + 1);
 
@@ -594,7 +597,7 @@ static int __init omap3_beagle_i2c_init(void)
 	}
 	/* Bus 3 is attached to the DVI port where devices like the pico DLP
 	 * projector don't work reliably with 400kHz */
-	omap_register_i2c_bus(3, 100, ts_i2c_clients,
+	omap_register_i2c_bus(3, 400, ts_i2c_clients,
 			    ARRAY_SIZE(ts_i2c_clients));
 	return 0;
 }
